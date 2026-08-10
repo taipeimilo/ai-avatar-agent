@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import numpy as np
 import soundfile as sf
-from kokoro import Kokoro
+from kokoro_onnx import Kokoro
 
 from src.config import Config
 
@@ -24,22 +24,14 @@ class TTS:
         kokoro_dir = os.path.join(cfg.models_dir, "kokoro")
         os.makedirs(kokoro_dir, exist_ok=True)
         model_path = os.path.join(kokoro_dir, "kokoro-v1.0.onnx")
-        voices_path = os.path.join(kokoro_dir, "voices.json")
+        voices_path = os.path.join(kokoro_dir, "voices-v1.0.bin")
+        # Kokoro loads voices via np.load(); the release ships voices-v1.0.bin.
+        if not os.path.exists(voices_path):
+            voices_path = os.path.join(kokoro_dir, "voices.json")
         # Kokoro auto-downloads to these paths if missing.
+        # It selects the best available execution provider automatically
+        # (DmlExecutionProvider if onnxruntime-directml is installed -> AMD GPU).
         self.kokoro = Kokoro(model_path, voices_path)
-        # Pick execution provider: DirectML if available (AMD GPU), else CPU.
-        providers = ["CPUExecutionProvider"]
-        try:
-            import onnxruntime as ort
-            avail = ort.get_available_providers()
-            if cfg.face_backend in ("directml", "auto") and "DmlExecutionProvider" in avail:
-                providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-                print("[tts] Using DirectML (AMD GPU) for Kokoro.")
-            else:
-                print("[tts] Using CPU for Kokoro.")
-        except Exception:  # noqa: BLE001
-            pass
-        self.kokoro.set_execution_providers(providers)
 
     def speak(self, text: str, out_wav: str | None = None) -> tuple[str, int]:
         """Return (wav_path, sample_rate). Writes the synthesized speech to out_wav."""
@@ -47,7 +39,6 @@ class TTS:
             out_wav = os.path.join(self.cfg.models_dir, "last_spoken.wav")
         audio, sr = self.kokoro.create(
             text, voice=self.cfg.tts_voice, speed=self.cfg.tts_speed,
-            lang="en-us",
         )
         audio = np.asarray(audio, dtype=np.float32)
         sf.write(out_wav, audio, sr)
