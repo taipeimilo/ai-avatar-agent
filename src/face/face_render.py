@@ -37,7 +37,14 @@ class FaceRenderer(ABC):
             except Exception:  # noqa: BLE001
                 backend = "cpu"
         print(f"[face] backend = {backend}")
-        # LivePortrait is the quality choice; we wrap it to fall back gracefully.
+        # Photorealistic path first (Wav2Lip-ONNX), then LivePortrait, then
+        # the always-works lightweight mouth animation.
+        if cfg.face_model in ("wav2lip", "auto"):
+            try:
+                from src.face.wav2lip import Wav2LipRenderer
+                return Wav2LipRenderer(cfg, backend)
+            except Exception as e:  # noqa: BLE001
+                print(f"[face] Wav2Lip unavailable ({e}); trying LivePortrait.")
         try:
             from src.face.liveportrait import LivePortraitRenderer
             return LivePortraitRenderer(cfg, backend)

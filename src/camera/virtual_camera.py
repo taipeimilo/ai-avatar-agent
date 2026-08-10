@@ -57,10 +57,14 @@ class VirtualCamera:
     def _init_pyvirtualcam(self):
         try:
             import pyvirtualcam
-            self.vc = pyvirtualcam.Camera(width=self.width, height=self.height, fps=self.fps)
-            print(f"[cam] pyvirtualcam ready: {self.vc.device}")
+            # pyvirtualcam auto-detects the OBS Virtual Camera backend on Windows.
+            self.vc = pyvirtualcam.Camera(
+                width=self.width, height=self.height, fps=self.fps,
+                backend="obs",
+            )
+            print(f"[cam] OBS virtual camera ready: {self.vc.device}")
         except Exception as e:  # noqa: BLE001
-            print(f"[cam] pyvirtualcam unavailable ({e}); window preview only.")
+            print(f"[cam] OBS virtual camera unavailable ({e}); window preview only.")
             self.use_window = True
 
     def send(self, frame_bgr: np.ndarray, speaking: bool = False):
