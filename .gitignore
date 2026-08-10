@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Large model weights (download on demand)
+models/
+*.onnx
+*.bin
+
+# Local secrets
+.env
+*.token
+
+# OS
+Thumbs.db
+.DS_Store
