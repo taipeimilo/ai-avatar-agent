@@ -33,33 +33,64 @@ class Wav2LipRenderer(FaceRenderer):
     def _load(self):
         import onnxruntime as ort
         d = os.path.join(self.cfg.models_dir, "wav2lip")
+        # NOTE: wav2lip.onnx segfaults under onnxruntime-directml on AMD, so we
+        # pin CPUExecutionProvider here. It's a small single-crop model and runs
+        # fast enough; the heavy TTS/Kokoro still uses DirectML elsewhere.
         self.w2l = ort.InferenceSession(
-            os.path.join(d, "wav2lip.onnx"), providers=self.providers)
+            os.path.join(d, "wav2lip.onnx"), providers=["CPUExecutionProvider"])
 
     def _detect_face(self, img):
         """Return (cropped 96x96 face float 0..1, (x1,y1,x2,y2) in img space).
 
-        cv2 5.x removed the legacy Haar cascade, so for a centered avatar we use
-        a stable center crop (60% of the smaller side), padded for chin/forehead.
-        Swap in insightface's scrfd ONNX here for arbitrary photos if needed.
+        Uses the bundled SCRFD ONNX detector so arbitrary photos (incl. tall
+        portraits) get a real face crop, not a center-crop guess. Falls back to a
+        center crop if detection fails.
         """
+        import os
+        det_path = os.path.join(
+            self.cfg.models_dir, "wav2lip", "insightface_func", "models",
+            "antelope", "scrfd_2.5g_bnkps.onnx")
+        try:
+            from src.face.scrfd import SCRFDetector
+            det = SCRFDetector(det_path, providers=self.providers)
+            res = det.detect(img)
+            if res:
+                x1, y1, x2, y2 = res["box"]
+                # pad for chin/forehead so the mouth region is intact
+                h, w = img.shape[:2]
+                pad = int((y2 - y1) * 0.2)
+                x1 = max(0, x1 - pad // 2)
+                y1 = max(0, y1 - pad)
+                x2 = min(w, x2 + pad // 2)
+                y2 = min(h, y2 + pad)
+                crop = img[y1:y2, x1:x2]
+                crop = cv2.resize(crop, (96, 96))
+                return crop.astype(np.float32) / 255.0, (x1, y1, x2, y2)
+        except Exception as e:  # noqa: BLE001
+            print(f"[wav2lip] face detection failed ({e}); center crop fallback.")
         h, w = img.shape[:2]
         s = int(min(w, h) * 0.6)
-        x1 = (w - s) // 2
-        y1 = (h - s) // 2
+        x1, y1 = (w - s) // 2, (h - s) // 2
         x2, y2 = x1 + s, y1 + s
-        crop = img[y1:y2, x1:x2]
-        crop = cv2.resize(crop, (96, 96))
+        crop = cv2.resize(img[y1:y2, x1:x2], (96, 96))
         return crop.astype(np.float32) / 255.0, (x1, y1, x2, y2)
 
     def _mel_from_wav(self, wav_path):
+        # Match instant-high/wav2lip-onnx-HQ hparams exactly. The model was
+        # trained on mels normalized to [-4, 4] (symmetric_mels, max_abs=4,
+        # min_level_db=-100, ref_level_db=20). Feeding the wrong scale makes the
+        # generator emit a constant (red block), so this MUST match.
         import librosa
+        import scipy.signal
         y, _ = librosa.load(wav_path, sr=16000)
-        mel = librosa.feature.melspectrogram(
-            y=y, sr=16000, n_mels=80, n_fft=800, hop_length=200, win_length=800)
-        mel = librosa.power_to_db(mel, ref=np.max)
-        # standardize roughly to Wav2Lip's expected range
-        mel = np.clip((mel + 100) / 100.0, -1.0, 1.0)
+        y = scipy.signal.lfilter([1, -0.97], [1], y)  # preemphasis
+        D = librosa.stft(y=y, n_fft=800, hop_length=200, win_length=800)
+        S = np.abs(D)
+        mel_basis = librosa.filters.mel(sr=16000, n_fft=800, n_mels=80, fmin=55, fmax=7600)
+        mel = np.dot(mel_basis, S)
+        mel = 20 * np.log10(np.maximum(1e-5, mel)) - 20  # _amp_to_db - ref_level_db
+        # _normalize: symmetric, allow_clipping
+        mel = np.clip(2 * 4.0 * ((mel - (-100)) / 100.0) - 4.0, -4.0, 4.0)
         return mel  # (80, T)
 
     def render_audio(self, audio_wav, sample_rate):

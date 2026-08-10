@@ -37,8 +37,13 @@ class FaceRenderer(ABC):
             except Exception:  # noqa: BLE001
                 backend = "cpu"
         print(f"[face] backend = {backend}")
-        # Photorealistic path first (Wav2Lip-ONNX), then LivePortrait, then
-        # the always-works lightweight mouth animation.
+        # Explicit lightweight (clean mouth animation) — fast, always works,
+        # great for stylized or already-driven avatars.
+        if cfg.face_model == "lightweight":
+            from src.face.lightweight import LightweightRenderer
+            return LightweightRenderer(cfg, backend)
+        # Photorealistic path next (Wav2Lip-ONNX), then LivePortrait, then the
+        # always-works lightweight mouth animation.
         if cfg.face_model in ("wav2lip", "auto"):
             try:
                 from src.face.wav2lip import Wav2LipRenderer

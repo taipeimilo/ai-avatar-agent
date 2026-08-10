@@ -33,8 +33,8 @@ class Config:
     # "auto" tries DirectML (AMD GPU) then falls back to CPU.
     face_backend: str = os.getenv("AVATAR_FACE_BACKEND", "auto")  # auto|directml|cpu
     face_model: str = os.getenv(
-        "AVATAR_FACE_MODEL", "wav2lip"
-    )  # wav2lip|liveportrait|musetalk
+        "AVATAR_FACE_MODEL", "lightweight"
+    )  # lightweight|wav2lip|liveportrait|musetalk
     avatar_image: str = os.getenv(
         "AVATAR_IMAGE", os.path.join("assets", "avatar.png")
     )
