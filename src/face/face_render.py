@@ -101,13 +101,44 @@ class LightweightRenderer(FaceRenderer):
         return frame
 
 
+def _letterbox_map(path: str, w: int, h: int):
+    """Return (scale_x, scale_y, offset_x, offset_y) used by _load_avatar.
+
+    Lets downstream code (face detection) map coordinates from the raw image
+    into the letterboxed canvas without re-implementing the fit math. Since the
+    fit preserves aspect ratio, scale_x == scale_y.
+    """
+    import cv2
+    img = cv2.imread(path)
+    ih, iw = img.shape[:2]
+    scale = min(w / iw, h / ih)
+    nw, nh = int(round(iw * scale)), int(round(ih * scale))
+    return scale, scale, (w - nw) // 2, (h - nh) // 2
+
+
 def _load_avatar(path: str, w: int, h: int):
+    """Load the avatar and fit it into the w x h canvas WITHOUT stretching.
+
+    Preserves aspect ratio: the image is scaled to fit and centered on a black
+    background (letterbox). A tall portrait stays a tall portrait; a wide image
+    is pillarboxed. Coordinates downstream (face box, mouth anchor) are all in
+    the final canvas space, so letterboxing is safe.
+    """
     import cv2
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     img = cv2.imread(path)
-    img = cv2.resize(img, (w, h))
-    return img
+    ih, iw = img.shape[:2]
+    scale = min(w / iw, h / ih)          # fit, no distortion
+    nw, nh = int(round(iw * scale)), int(round(ih * scale))
+    if nw <= 0 or nh <= 0:
+        nw, nh = w, h
+    resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA)
+    canvas = np.zeros((h, w, 3), dtype=np.uint8)   # black letterbox
+    x0 = (w - nw) // 2
+    y0 = (h - nh) // 2
+    canvas[y0:y0 + nh, x0:x0 + nw] = resized
+    return canvas
 
 
 def cfg_fps(cfg: Config) -> int:

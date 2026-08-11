@@ -1,10 +1,9 @@
 """Lightweight mouth-animation renderer (clean, real-time, always works).
 
-Draws an animated mouth synced to the audio envelope. Uses SCRFD to locate the
-face (and its mouth landmarks) so the mouth lands in the right place on
-arbitrary photos. The photo's own (often smiling/static) mouth is masked out
-with surrounding skin tone and a fresh, clearly animating mouth is drawn on top
-so the result reads as "talking" rather than a static smile.
+Draws an animated mouth synced to the audio envelope. It letterboxes the avatar
+photo (no stretching) and draws a clean, realistically-sized mouth on top,
+driven by the audio RMS, so the result reads as "talking" without distorting the
+original headshot.
 """
 from __future__ import annotations
 
@@ -20,48 +19,36 @@ class LightweightRenderer(FaceRenderer):
         self.backend = backend
         self.img = _load_avatar(cfg.avatar_image, cfg.camera_width, cfg.camera_height)
         self.face_box, self.landmarks = self._detect()
-        self._skin = self._sample_skin()
 
     def _detect(self):
-        det_path = os.path.join(
-            self.cfg.models_dir, "wav2lip", "insightface_func", "models",
-            "antelope", "scrfd_2.5g_bnkps.onnx")
-        try:
-            from src.face.scrfd import SCRFDetector
-            det = SCRFDetector(det_path, providers=["CPUExecutionProvider"])
-            res = det.detect(self.img)
-            if res:
-                return res["box"], res.get("landmarks")
-        except Exception as e:  # noqa: BLE001
-            print(f"[lightweight] face detect failed ({e}); center-mouth fallback.")
+        # Find the HEAD (not the whole body) from warm skin pixels in the upper
+        # half of the image, so the mouth anchor lands on the real face even
+        # when the subject is off-center or the photo includes shoulders.
         h, w = self.img.shape[:2]
-        return (int(w * 0.3), int(h * 0.35), int(w * 0.7), int(h * 0.7)), None
-
-    def _sample_skin(self):
-        """Average skin tone from a band just above the mouth (upper cheeks)."""
-        x1, y1, x2, y2 = self.face_box
-        cx = (x1 + x2) // 2
-        band = self.img[int(y1 + (y2 - y1) * 0.55):int(y1 + (y2 - y1) * 0.62),
-                         cx - (x2 - x1) // 4:cx + (x2 - x1) // 4]
-        if band.size == 0:
-            return tuple(int(c) for c in self.img.mean(axis=(0, 1)))
-        return tuple(int(c) for c in band.reshape(-1, 3).mean(axis=0))
+        b, g, r = (self.img[:, :, c].astype(int) for c in range(3))
+        warm = (r > g) & (g > b) & (r > 90) & (r - b > 25)
+        # keep only the upper 55% of the image where the head sits
+        upper = warm.copy()
+        upper[h // 2:, :] = False
+        coords = np.where(upper)
+        if coords[0].size < 300:
+            # fall back to whole-image warm bbox
+            coords = np.where(warm)
+        if coords[0].size < 300:
+            return (int(w * 0.3), int(h * 0.35), int(w * 0.7), int(h * 0.7)), None
+        x0, x1 = int(coords[1].min()), int(coords[1].max())
+        y0, y1 = int(coords[0].min()), int(coords[0].max())
+        # The head bbox; the mouth sits in the lower-middle of the head.
+        return (x0, y0, x1, y1), None
 
     def _mouth_anchor(self):
         x1, y1, x2, y2 = self.face_box
-        if self.landmarks is not None and self.landmarks.shape[0] >= 5:
-            # landmarks order: left-eye, right-eye, nose, left-mouth, right-mouth
-            lm = self.landmarks
-            mouth_l, mouth_r = lm[3], lm[4]
-            cx = int((mouth_l[0] + mouth_r[0]) / 2)
-            # place slightly below the eye/nose midpoint; use mouth landmark line
-            cy = int((mouth_l[1] + mouth_r[1]) / 2)
-            mw = int(max(8, abs(mouth_r[0] - mouth_l[0]) * 1.05))
-            return cx, cy, mw
-        # fallback: centered in lower face
+        # mouth sits ~85% down the detected head bbox (top of bbox = hairline,
+        # so the face occupies the lower portion). Verified against this headshot
+        # where the real mouth center is ~canvas y=290.
         cx = (x1 + x2) // 2
-        cy = int(y1 + (y2 - y1) * 0.72)
-        mw = int((x2 - x1) * 0.22)
+        cy = int(y1 + (y2 - y1) * 0.85)
+        mw = int((x2 - x1) * 0.16)      # realistic mouth width (~16% of head)
         return cx, cy, mw
 
     def render_audio(self, audio_wav, sample_rate):
@@ -82,38 +69,15 @@ class LightweightRenderer(FaceRenderer):
 
     def _draw_mouth(self, frame, speaking, amount):
         cx, cy, mw = self._mouth_anchor()
-        fw = self.face_box[2] - self.face_box[0]
-        # vertical opening driven by envelope (clearly open when speaking)
-        mh = int(3 + amount * 34)
-        skin = self._skin
-
-        # 1) Mask out the photo's original (static) mouth with a soft skin patch
-        mask_h = int(fw * 0.34)
-        mask_w = int(fw * 0.46)
-        y0, y1 = cy - mask_h // 2, cy + mask_h // 2
-        x0, x1 = cx - mask_w // 2, cx + mask_w // 2
-        y0, y1 = max(0, y0), min(frame.shape[0], y1)
-        x0, x1 = max(0, x0), min(frame.shape[1], x1)
-        if y1 > y0 and x1 > x0:
-            patch = np.array(skin, dtype=np.uint8) * np.ones(
-                (y1 - y0, x1 - x0, 3), dtype=np.uint8)
-            sub = frame[y0:y1, x0:x1].astype(np.float32)
-            # blend so it doesn't look like a hard rectangle
-            w = np.hanning(y1 - y0)[:, None] * np.hanning(x1 - x0)[None, :]
-            w = w[:, :, None]
-            frame[y0:y1, x0:x1] = (sub * (1 - w) + patch * w).astype(np.uint8)
-
-        # 2) Draw the animating mouth on top
-        # Lip line follows the opening; interior shade shifts with openness.
-        fill = (30, 24, 26) if speaking else (70, 62, 62)
-        cv2.ellipse(frame, (cx, cy), (mw, max(3, mh)), 0, 0, 360, fill, -1)
-        # lip line
-        cv2.ellipse(frame, (cx, cy), (mw, max(3, mh)), 0, 0, 360, (15, 12, 12), 3)
-        # upper lip hint so a closed mouth still reads as a mouth
-        cv2.ellipse(frame, (cx, cy - max(3, mh) - 2), (mw - 4, 3), 0, 0, 360,
-                    (45, 38, 38), -1)
-        # teeth glint when clearly open
-        if speaking and amount > 0.35:
-            cv2.ellipse(frame, (cx, cy - mh // 3), (mw - 6, max(2, mh // 3)),
+        mh = int(2 + amount * 10)       # natural opening, driven by audio
+        # Clean, small animated mouth drawn directly on the photo's lips. A soft
+        # lip/rose tone (not near-black) + thin lip line so it reads as a mouth
+        # rather than a dark bar/line.
+        fill = (92, 48, 60) if speaking else (112, 62, 72)
+        cv2.ellipse(frame, (cx, cy), (mw, max(2, mh)), 0, 0, 360, fill, -1)
+        cv2.ellipse(frame, (cx, cy), (mw, max(2, mh)), 0, 0, 360, (40, 22, 28), 1)
+        # subtle teeth glint when clearly open
+        if speaking and amount > 0.5:
+            cv2.ellipse(frame, (cx, cy - mh // 3), (mw - 8, max(2, mh // 3)),
                         0, 0, 360, (225, 220, 220), -1)
         return frame
