@@ -25,6 +25,7 @@ from src.agent.listen import Listener
 from src.tts.tts import TTS
 from src.face.face_render import FaceRenderer
 from src.camera.virtual_camera import VirtualCamera
+from src.audio.out import play_wav, cable_available
 
 
 def run_console(cfg):
@@ -74,6 +75,9 @@ def _turn(brain, tts, face, cam, user):
     reply = brain.reply(user)
     print(f"avatar> {reply}")
     wav, sr = tts.speak(reply)
+    # Play the voice to the virtual cable (Teams mic) so the avatar is HEARD.
+    # Non-blocking: the face animation runs in parallel.
+    play_wav(wav, block=False)
     t0 = time.time()
     for frame, speaking in face.render_audio(wav, sr):
         cam.send(frame, speaking)
@@ -98,6 +102,15 @@ def main():
     cfg = load_config()
     print("=== AI Avatar Agent ===")
     print(f"model={cfg.ollama_model} face={cfg.face_model}/{cfg.face_backend} cam={cfg.camera_backend}")
+    try:
+        from src.audio.out import cable_available
+        if cable_available():
+            print("[audio] VB-Audio Virtual Cable detected -> avatar voice will be heard in Teams.")
+        else:
+            print("[audio] VB-Audio Virtual Cable NOT found -> voice plays on speakers only.")
+            print("        Install it (https://vb-audio.com/Cable/) so Teams can capture the avatar's voice.")
+    except Exception:  # noqa: BLE001
+        pass
     if args.live:
         run_live(cfg)
     else:
