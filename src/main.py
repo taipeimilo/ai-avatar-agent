@@ -49,10 +49,18 @@ def run_live(cfg):
     listener = Listener(cfg, model_size="base", device="cpu")
     listener.start()
     print("\n[LIVE] Listening... speak, then pause ~1s. Ctrl-C to stop.")
+    print("       The 'AI Avatar' window stays live (OBS captures it). In your")
+    print("       meeting app, select 'OBS Virtual Camera' as the camera.")
     try:
+        import numpy as np
+        # Keep the window continuously alive so OBS's capture never freezes.
+        idle = face.img if hasattr(face, "img") else np.zeros(
+            (cfg.camera_height, cfg.camera_width, 3), dtype=np.uint8)
         while True:
+            # Show idle frame + small wait, then check for speech.
+            cam.send(idle, speaking=False)
             try:
-                user = listener.listen_once(timeout=6.0)
+                user = listener.listen_once(timeout=0.2)
             except KeyboardInterrupt:
                 break
             if user:
