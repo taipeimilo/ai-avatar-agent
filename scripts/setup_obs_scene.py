@@ -14,11 +14,16 @@ user to do it manually).
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
 
 HOST, PORT = "localhost", 4455
-PASSWORD = ""  # set if you configured a websocket password
+# OBS obs-websocket v5 turns on authentication by default and REQUIRES this
+# password to match what you set in OBS (Tools > obs-websocket Settings).
+# Leave blank ONLY if you disabled authentication in OBS. Otherwise set it:
+#   set "OBS_WS_PASSWORD=your_password"
+PASSWORD = os.getenv("OBS_WS_PASSWORD", "")
 WINDOW_TITLE = "AI Avatar"
 SCENE = "AI Avatar"
 
@@ -34,7 +39,15 @@ def main():
     try:
         ws.connect()
     except Exception as e:  # noqa: BLE001
-        print(f"obs-websocket not reachable ({e}); enable it in OBS.")
+        msg = str(e).lower()
+        if "auth" in msg or "password" in msg or "401" in msg:
+            print("WEBSOCKET AUTH ERROR: OBS obs-websocket is password-protected.")
+            print("  Fix A (recommended): disable auth -> OBS: Tools > obs-websocket")
+            print("         Settings > uncheck 'Enable Authentication' > Apply/OK.")
+            print("  Fix B: set the same password here:  set \"OBS_WS_PASSWORD=<your password>\"")
+            print("         then re-run. (Edit start_obs.bat or your environment.)")
+        else:
+            print(f"obs-websocket not reachable ({e}); enable it in OBS (Tools > obs-websocket Settings).")
         return 1
 
     try:
