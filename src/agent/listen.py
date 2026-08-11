@@ -59,7 +59,7 @@ class Listener:
         buf = io.BytesIO()
         sf.write(buf, audio, 16000, format="WAV")
         buf.seek(0)
-        segments, _ = self.model.transcribe(buf.read(), language="en")
+        segments, _ = self.model.transcribe(buf, language="en")
         return " ".join(s.text for s in segments).strip()
 
 

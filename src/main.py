@@ -63,9 +63,15 @@ def run_live(cfg):
                 user = listener.listen_once(timeout=0.2)
             except KeyboardInterrupt:
                 break
+            except Exception as e:  # noqa: BLE001
+                print(f"[listen error] {e} (continuing)")
+                continue
             if user:
                 print(f"you> {user}")
-                _turn(brain, tts, face, cam, user)
+                try:
+                    _turn(brain, tts, face, cam, user)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[turn error] {e} (continuing)")
     finally:
         listener.stop()
         cam.close()
