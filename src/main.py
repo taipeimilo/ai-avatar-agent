@@ -54,11 +54,22 @@ def run_live(cfg):
     try:
         import numpy as np
         # Keep the window continuously alive so OBS's capture never freezes.
+        # Blink periodically while idle so the avatar reads as a live person.
         idle = face.img if hasattr(face, "img") else np.zeros(
             (cfg.camera_height, cfg.camera_width, 3), dtype=np.uint8)
+        blink_phase = 0.0
+        last_blink = 0.0
+        t_start = time.time()
         while True:
-            # Show idle frame + small wait, then check for speech.
-            cam.send(idle, speaking=False)
+            now = time.time()
+            # Blink briefly every ~4s (2 frames closed) for a "live" feel.
+            if now - last_blink > 4.0:
+                blink = (now - last_blink) < 0.12
+                if (now - last_blink) >= 0.12:
+                    last_blink = now
+            else:
+                blink = False
+            cam.send(face.render_idle(blink=blink), speaking=False)
             try:
                 user = listener.listen_once(timeout=0.2)
             except KeyboardInterrupt:

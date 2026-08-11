@@ -67,6 +67,23 @@ class LightweightRenderer(FaceRenderer):
             frame = self._draw_mouth(self.img.copy(), speaking, e)
             yield frame, speaking
 
+    def render_idle(self, blink: bool = False):
+        """A neutral idle frame. When `blink` is True, briefly draws closed
+        eyelids so the avatar reads as a live person (not a frozen image)."""
+        frame = self.img.copy()
+        x1, y1, x2, y2 = self.face_box
+        cx = (x1 + x2) // 2
+        fw = x2 - x1
+        fh = y2 - y1
+        ey = int(y1 + fh * 0.40)          # eye line height
+        dx = int(fw * 0.22)               # half-distance between eyes
+        ew = int(fw * 0.13)               # eye width
+        if blink:
+            for ex in (cx - dx, cx + dx):
+                cv2.line(frame, (ex - ew, ey), (ex + ew, ey), (35, 28, 30), 3,
+                         cv2.LINE_AA)
+        return frame
+
     def _draw_mouth(self, frame, speaking, amount):
         cx, cy, mw = self._mouth_anchor()
         mh = int(2 + amount * 10)       # natural opening, driven by audio

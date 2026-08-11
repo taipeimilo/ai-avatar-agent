@@ -18,19 +18,45 @@ import soundfile as sf
 CABLE_NAME = "CABLE Input"  # VB-Audio Virtual Cable input (Teams "microphone")
 
 
-def find_device(name_substr: str) -> int | None:
-    """Return the output device index whose name contains `name_substr`, else None."""
+def find_device(name_substr: str, prefer_channels: int = 2) -> int | None:
+    """Return the output device index whose name contains `name_substr`, else None.
+
+    Prefers the standard 2-channel device (the one Teams actually exposes as a
+    "microphone") over 16-channel variants from Voicemeeter/Hi-Fi Cable, so we
+    don't send audio to a cable your meeting app isn't listening to.
+    """
     devs = sd.query_devices()
-    for i, d in enumerate(devs):
-        if name_substr.lower() in d["name"].lower() and d["max_output_channels"] > 0:
+    candidates = [
+        (i, d) for i, d in enumerate(devs)
+        if name_substr.lower() in d["name"].lower() and d["max_output_channels"] > 0
+    ]
+    if not candidates:
+        return None
+    for i, d in candidates:
+        if d["max_output_channels"] == prefer_channels:
             return i
-    return None
+    return candidates[0][0]
 
 
-def play_wav(wav_path: str, device: str | int | None = None, block: bool = True):
+def _safe_play(data, sr, idx: int, block: bool):
+    try:
+        sd.play(data, sr, device=idx, blocking=block)
+    except Exception as e:  # noqa: BLE001
+        default = sd.default.device[1]
+        print(f"[audio] device {idx} failed ({e}); falling back to default output.")
+        sd.play(data, sr, device=default, blocking=block)
+
+
+def play_wav(wav_path: str, device: str | int | None = None, block: bool = True,
+             monitor: bool | None = None):
     """Play a WAV file to `device` (name substring or index). None = cable-or-default.
 
-    Returns the device index actually used.
+    The avatar's voice is sent to the virtual cable so a meeting app (Teams/Zoom)
+    hears it when its microphone is set to that cable. By default we ALSO play it
+    on the system default speakers (monitoring) so you can hear the avatar on your
+    own PC too. Set AVATAR_AUDIO_MONITOR=0 to disable local monitoring.
+
+    Returns the primary device index actually used.
     """
     data, sr = sf.read(wav_path, dtype="float32")
     if data.ndim == 1:
@@ -43,15 +69,22 @@ def play_wav(wav_path: str, device: str | int | None = None, block: bool = True)
     if idx is None:
         idx = sd.default.device[1]  # system default output
         used_default = True
-    try:
-        sd.play(data, sr, device=idx, blocking=block)
-    except Exception as e:  # noqa: BLE001
-        if not used_default:
-            print(f"[audio] device {device} failed ({e}); using default output.")
-            sd.play(data, sr, device=sd.default.device[1], blocking=block)
-        else:
-            raise
+    _safe_play(data, sr, idx, block)
+
+    # Local monitoring so the user can hear the avatar on their own speakers.
+    mon = AVATAR_AUDIO_MONITOR if monitor is None else monitor
+    if mon and not used_default:
+        default_out = sd.default.device[1]
+        if isinstance(default_out, int) and default_out != idx:
+            try:
+                sd.play(data, sr, device=default_out, blocking=block)
+            except Exception as e:  # noqa: BLE001
+                print(f"[audio] monitor (speakers) failed: {e}")
     return idx
+
+
+# Local-speaker monitoring toggle (set AVATAR_AUDIO_MONITOR=0 to disable).
+AVATAR_AUDIO_MONITOR = os.getenv("AVATAR_AUDIO_MONITOR", "1") not in ("0", "false", "no")
 
 
 def cable_available() -> bool:
