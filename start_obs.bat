@@ -25,6 +25,8 @@ for %%I in ("%OBS%") do set "OBSBIN=%%~dpI"
 start "" /d "%OBSBIN%" "%OBS%"
 echo   waiting for OBS to boot...
 timeout /t 8 /nobreak >nul
+echo   >> In OBS, click "Start Virtual Camera" (bottom-right) so Teams can see it.
+echo   >> (Optional one-time: enable auto-start in Settings > Advanced.)
 
 echo [2/4] Starting OBS Virtual Camera (via obs-websocket)...
 "%PY%" "%REPO%scripts\start_obs_camera.py"

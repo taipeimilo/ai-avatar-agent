@@ -40,7 +40,7 @@ class Config:
     )
 
     # ---- Camera / output ----
-    camera_backend: str = os.getenv("AVATAR_CAMERA", "obs")  # obs|pyvirtualcam
+    camera_backend: str = os.getenv("AVATAR_CAMERA", "pyvirtualcam")  # pyvirtualcam|obs|window
     camera_width: int = int(os.getenv("AVATAR_W", "1280"))
     camera_height: int = int(os.getenv("AVATAR_H", "720"))
     camera_fps: int = int(os.getenv("AVATAR_FPS", "24"))
