@@ -1,15 +1,13 @@
 """
 Virtual camera output. Makes the rendered avatar appear as a real webcam that
-Zoom / Teams / Discord / OBS can select.
+Zoom / Teams / Discord can select.
 
-Two backends:
-  - "obs":  control OBS Studio's Virtual Camera (start it; OBS does the heavy
-            lifting of exposing the camera). Best on Windows.
-  - "pyvirtualcam": a pure-python virtual webcam (needs a virtual-cam driver such
-            as OBS's or a v4l2loopback-equivalent; on Windows we use OBS).
-
-We also expose a simple window preview (OpenCV) so you can see the avatar even
-without a virtual camera configured.
+Backend "pyvirtualcam" (default on Windows) talks to the OBS Virtual Camera
+DRIVER directly via pyvirtualcam's native obs backend. It creates the
+"OBS Virtual Camera" device itself -- OBS Studio does NOT need to be running,
+and you must NOT start OBS Studio's own virtual camera (that conflicts with
+pyvirtualcam owning the device). When pyvirtualcam is unavailable we fall back
+to an OpenCV window preview so the avatar is still visible locally.
 """
 from __future__ import annotations
 
