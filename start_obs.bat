@@ -7,7 +7,8 @@ REM  In Zoom/Teams/Discord, select "OBS Virtual Camera" as the camera.
 REM ============================================================
 SETLOCAL
 SET "REPO=%~dp0"
-SET "OBS=C:\Program Files\obs-studio\bin\64bit\obs64.exe"
+SET "OBS=C:\Users\milo_\obs-studio\bin\64bit\obs64.exe"
+IF NOT EXIST "%OBS%" SET "OBS=C:\Program Files\obs-studio\bin\64bit\obs64.exe"
 SET "PY=%REPO%.venv\Scripts\python.exe"
 IF NOT EXIST "%PY%" SET "PY=python"
 
@@ -19,7 +20,10 @@ IF NOT EXIST "%OBS%" (
   pause
   exit /b 1
 )
-start "" "%OBS%"
+REM Launch OBS with its OWN bin folder as the working directory so it can
+REM resolve data/locale correctly (launching from another CWD breaks it).
+for %%I in ("%OBS%") do set "OBSBIN=%%~dpI"
+start "" /d "%OBSBIN%" "%OBS%"
 echo   waiting for OBS to boot...
 timeout /t 8 /nobreak >nul
 
