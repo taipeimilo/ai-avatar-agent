@@ -8,7 +8,6 @@ REM ============================================================
 SETLOCAL
 SET "REPO=%~dp0"
 SET "OBS=C:\Users\milo_\obs-studio\bin\64bit\obs64.exe"
-IF NOT EXIST "%OBS%" SET "OBS=C:\Program Files\obs-studio\bin\64bit\obs64.exe"
 SET "PY=%REPO%.venv\Scripts\python.exe"
 IF NOT EXIST "%PY%" SET "PY=python"
 
